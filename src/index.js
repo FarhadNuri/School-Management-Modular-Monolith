@@ -17,24 +17,43 @@ import { startRabbitMQConsumer } from "./config/rabbitmq.js";
 
 const app = express();
 
-const allowedOrigins = [
-  ENV.FRONTEND_URL,
-  ENV.ADMIN_URL,
+const parseOrigins = (val) => {
+  if (!val) return [];
+  return val.split(",").map(u => u.trim().replace(/\/$/, "")).filter(Boolean);
+};
+
+const configuredOrigins = [
+  ...parseOrigins(ENV.FRONTEND_URL),
+  ...parseOrigins(ENV.ADMIN_URL),
+  "https://sunrisems-admin.vercel.app",
   "http://localhost:5173",
   "http://localhost:5174",
+  "http://localhost:3000",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5174",
-].filter(Boolean).map(url => url.replace(/\/$/, ""));
+  "http://127.0.0.1:3000",
+];
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  const clean = origin.replace(/\/$/, "");
+  if (configuredOrigins.includes(clean)) return true;
+  // Automatically allow any Vercel deployments (production & branch previews)
+  if (/^https:\/\/[a-zA-Z0-9_-]+\.vercel\.app$/.test(clean)) return true;
+  return false;
+};
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ""))) {
+    if (isAllowedOrigin(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`CORS blocked for origin: ${origin}`));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
 }));
 
 // Mount inbound webhook routes before express.json() for raw body verification
@@ -57,6 +76,7 @@ app.use('/api/health', (req, res) => {
 
 // Domain-Based Module Routes
 app.use('/api/auth', authRoutes);
+app.use('/api', authRoutes); // Fallback: resolves /api/user/login, /api/login, /api/admin/login
 app.use('/api/academics', academicsRoutes);
 app.use('/api/grading', gradingRoutes);
 app.use('/api/communication', communicationRoutes);
